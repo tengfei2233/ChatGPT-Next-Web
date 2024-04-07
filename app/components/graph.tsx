@@ -24,7 +24,7 @@ export function GraphSetting(props: {
     switch (currentDrawModel) {
       case "DALL-E 2":
       case "dall-e-2":
-        setAlllDrawSizes(["256x256", "512x512", "1024x1024"]);
+        setAlllDrawSizes(DRAW_SIZES);
         setAllDrawQuatities([
           {
             name: "默认",
@@ -40,7 +40,7 @@ export function GraphSetting(props: {
       case "DALL-E 3":
       case "dall-e-3":
         drawConfig.n = 1;
-        setAlllDrawSizes(DRAW_SIZES);
+        setAlllDrawSizes(["1024x1024", "1024x1792", "1792x1024"]);
         setAllDrawQuatities(DRAW_QUATITIES);
         setDrawNum("1");
         break;
