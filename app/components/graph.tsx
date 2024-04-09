@@ -2,7 +2,12 @@ import { List, ListItem, Select } from "./ui-lib";
 import { InputRange } from "./input-range";
 import Locale from "../locales";
 import { DrawConfigValidator, DrawConfig, useChatStore } from "../store";
-import { DEFAULLT_DRAW_MODEL, DRAW_SIZES, DRAW_QUATITIES } from "../constant";
+import {
+  DEFAULLT_DRAW_MODEL,
+  DRAW_SIZES,
+  DRAW_QUATITIES,
+  DRAW_SIZES_BIG,
+} from "../constant";
 import { useMemo, useState } from "react";
 
 export function GraphSetting(props: {
@@ -32,17 +37,22 @@ export function GraphSetting(props: {
           },
         ]);
         setDrawNum("4");
-        drawConfig.size = allDrawSizes.includes(drawConfig.size)
+        drawConfig.size = DRAW_SIZES.includes(drawConfig.size)
           ? drawConfig.size
-          : allDrawSizes[0];
+          : DRAW_SIZES[0];
         drawConfig.quality = allDrawQuatities[0].value;
+        console.log("drawConfig", drawConfig);
         break;
       case "DALL-E 3":
       case "dall-e-3":
         drawConfig.n = 1;
-        setAlllDrawSizes(["1024x1024", "1024x1792", "1792x1024"]);
+        setAlllDrawSizes(DRAW_SIZES_BIG);
         setAllDrawQuatities(DRAW_QUATITIES);
         setDrawNum("1");
+        drawConfig.size = DRAW_SIZES_BIG.includes(drawConfig.size)
+          ? drawConfig.size
+          : DRAW_SIZES_BIG[0];
+        console.log("drawConfig", drawConfig);
         break;
     }
   }, [currentDrawModel]);

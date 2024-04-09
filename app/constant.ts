@@ -319,6 +319,8 @@ export const DEFAULLT_DRAW_MODEL = [
 
 export const DRAW_SIZES = ["256x256", "512x512", "1024x1024"];
 
+export const DRAW_SIZES_BIG = ["1024x1024", "1024x1792", "1792x1024"];
+
 export const DRAW_QUATITIES = [
   {
     name: "默认",
