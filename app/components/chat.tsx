@@ -37,7 +37,6 @@ import AutoIcon from "../icons/auto.svg";
 import BottomIcon from "../icons/bottom.svg";
 import StopIcon from "../icons/pause.svg";
 import RobotIcon from "../icons/robot.svg";
-import GraphIcon from "../icons/graph.svg";
 
 import {
   ChatMessage,
@@ -60,8 +59,9 @@ import {
   getMessageTextContent,
   getMessageImages,
   isVisionModel,
-  compressImage,
 } from "../utils";
+
+import { compressImage } from "@/app/utils/chat";
 
 import dynamic from "next/dynamic";
 
@@ -88,23 +88,17 @@ import {
   Path,
   REQUEST_TIMEOUT_MS,
   UNFINISHED_INPUT,
+  ServiceProvider,
 } from "../constant";
 import { Avatar } from "./emoji";
 import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
-import { useMaskStore, Mask } from "../store/mask";
+import { useMaskStore } from "../store/mask";
 import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
 import { prettyObject } from "../utils/format";
 import { ExportMessageModal } from "./exporter";
 import { getClientConfig } from "../config/client";
 import { useAllModels } from "../utils/hooks";
 import { MultimodalContent } from "../client/api";
-import { DrawConfig } from "../store";
-import { GraphSetting } from "./graph";
-import { DEFAULT_CONFIG } from "../store";
-import { AI_DRAW_MODEL_NAME } from "../constant";
-
-import { PhotoProvider, PhotoView } from "react-photo-view";
-import "react-photo-view/dist/react-photo-view.css";
 
 const Markdown = dynamic(async () => (await import("./markdown")).Markdown, {
   loading: () => <LoadingIcon />,
@@ -115,6 +109,7 @@ export function SessionConfigModel(props: { onClose: () => void }) {
   const session = chatStore.currentSession();
   const maskStore = useMaskStore();
   const navigate = useNavigate();
+
   return (
     <div className="modal-mask">
       <Modal
@@ -203,51 +198,6 @@ function PromptToast(props: {
   );
 }
 
-// AI绘图设置Toast
-function AIDrawToast(props: {
-  showModal?: boolean;
-  setShowModal: (_: boolean) => void;
-}) {
-  return (
-    <div className={styles["prompt-toast"]} key="ai-draw-toast">
-      {props.showModal && (
-        <AIDrawModel onClose={() => props.setShowModal(false)} />
-      )}
-    </div>
-  );
-}
-
-export function AIDrawModel(props: { onClose: () => void }) {
-  const chatStore = useChatStore();
-  const session = chatStore.currentSession();
-  // ai绘图设置
-  const drawConfig = session.mask.drawConfig || DEFAULT_CONFIG.drawConfig;
-
-  // drawConfig为空处理
-  const updateMask = (updater: (value: Mask) => void) => {
-    const mask = { ...session.mask };
-    updater(mask);
-    chatStore.updateCurrentSession((session) => (session.mask = mask));
-  };
-  const updateDraw = (updater: (config: DrawConfig) => void) => {
-    const config = { ...drawConfig };
-    updater(config);
-    updateMask((mask) => {
-      mask.drawConfig = config;
-      // if user changed current session mask, it will disable auto sync
-      mask.syncGlobalConfig = false;
-    });
-  };
-
-  return (
-    <div className="modal-mask">
-      <Modal title={Locale.AIDraw.SettingTitle} onClose={() => props.onClose()}>
-        <GraphSetting drawConfig={drawConfig} updateDraw={updateDraw} />
-      </Modal>
-    </div>
-  );
-}
-
 function useSubmitHandler() {
   const config = useAppConfig();
   const submitKey = config.submitKey;
@@ -271,6 +221,8 @@ function useSubmitHandler() {
   }, []);
 
   const shouldSubmit = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Fix Chinese input method "Enter" on Safari
+    if (e.keyCode == 229) return false;
     if (e.key !== "Enter") return false;
     if (e.key === "Enter" && (e.nativeEvent.isComposing || isComposing.current))
       return false;
@@ -472,7 +424,6 @@ export function ChatActions(props: {
   setAttachImages: (images: string[]) => void;
   setUploading: (uploading: boolean) => void;
   showPromptModal: () => void;
-  showAIDrawSetting: () => void;
   scrollToBottom: () => void;
   showPromptHints: () => void;
   hitBottom: boolean;
@@ -498,15 +449,34 @@ export function ChatActions(props: {
 
   // switch model
   const currentModel = chatStore.currentSession().mask.modelConfig.model;
+  const currentProviderName =
+    chatStore.currentSession().mask.modelConfig?.providerName ||
+    ServiceProvider.OpenAI;
   const allModels = useAllModels();
-  const models = useMemo(
-    () => allModels.filter((m) => m.available),
-    [allModels],
-  );
+  const models = useMemo(() => {
+    const filteredModels = allModels.filter((m) => m.available);
+    const defaultModel = filteredModels.find((m) => m.isDefault);
+
+    if (defaultModel) {
+      const arr = [
+        defaultModel,
+        ...filteredModels.filter((m) => m !== defaultModel),
+      ];
+      return arr;
+    } else {
+      return filteredModels;
+    }
+  }, [allModels]);
+  const currentModelName = useMemo(() => {
+    const model = models.find(
+      (m) =>
+        m.name == currentModel &&
+        m?.provider?.providerName == currentProviderName,
+    );
+    return model?.displayName ?? "";
+  }, [models, currentModel, currentProviderName]);
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [showUploadImage, setShowUploadImage] = useState(false);
-  // 是否显示AI绘画设置按钮
-  const [showAIDrawModel, setShowAIDrawModel] = useState(false);
 
   useEffect(() => {
     const show = isVisionModel(currentModel);
@@ -520,17 +490,18 @@ export function ChatActions(props: {
     // switch to first available model
     const isUnavaliableModel = !models.some((m) => m.name === currentModel);
     if (isUnavaliableModel && models.length > 0) {
-      const nextModel = models[0].name as ModelType;
-      chatStore.updateCurrentSession(
-        (session) => (session.mask.modelConfig.model = nextModel),
+      // show next model to default model if exist
+      let nextModel = models.find((model) => model.isDefault) || models[0];
+      chatStore.updateCurrentSession((session) => {
+        session.mask.modelConfig.model = nextModel.name;
+        session.mask.modelConfig.providerName = nextModel?.provider
+          ?.providerName as ServiceProvider;
+      });
+      showToast(
+        nextModel?.provider?.providerName == "ByteDance"
+          ? nextModel.displayName
+          : nextModel.name,
       );
-      showToast(nextModel);
-    }
-    // 设置是否显示AI绘画设置按钮
-    if (currentModel === AI_DRAW_MODEL_NAME) {
-      setShowAIDrawModel(true);
-    } else {
-      setShowAIDrawModel(false);
     }
   }, [chatStore, currentModel, models]);
 
@@ -612,33 +583,40 @@ export function ChatActions(props: {
 
       <ChatAction
         onClick={() => setShowModelSelector(true)}
-        text={currentModel}
+        text={currentModelName}
         icon={<RobotIcon />}
       />
 
-      {showAIDrawModel && (
-        <ChatAction
-          onClick={props.showAIDrawSetting}
-          text={Locale.Chat.InputActions.DrawSetting}
-          icon={<GraphIcon />}
-        />
-      )}
-
       {showModelSelector && (
         <Selector
-          defaultSelectedValue={currentModel}
+          defaultSelectedValue={`${currentModel}@${currentProviderName}`}
           items={models.map((m) => ({
-            title: m.displayName,
-            value: m.name,
+            title: `${m.displayName}${
+              m?.provider?.providerName
+                ? "(" + m?.provider?.providerName + ")"
+                : ""
+            }`,
+            value: `${m.name}@${m?.provider?.providerName}`,
           }))}
           onClose={() => setShowModelSelector(false)}
           onSelection={(s) => {
             if (s.length === 0) return;
+            const [model, providerName] = s[0].split("@");
             chatStore.updateCurrentSession((session) => {
-              session.mask.modelConfig.model = s[0] as ModelType;
+              session.mask.modelConfig.model = model as ModelType;
+              session.mask.modelConfig.providerName =
+                providerName as ServiceProvider;
               session.mask.syncGlobalConfig = false;
             });
-            showToast(s[0]);
+            if (providerName == "ByteDance") {
+              const selectedModel = models.find(
+                (m) =>
+                  m.name == model && m?.provider?.providerName == providerName,
+              );
+              showToast(selectedModel?.displayName ?? "");
+            } else {
+              showToast(model);
+            }
           }}
         />
       )}
@@ -1098,9 +1076,6 @@ function _Chat() {
 
   const [showPromptModal, setShowPromptModal] = useState(false);
 
-  // 打开关闭AI绘图设置
-  const [showAIDrawSetting, setShowAIDrawSetting] = useState(false);
-
   const clientConfig = useMemo(() => getClientConfig(), []);
 
   const autoFocus = !isMobileScreen; // wont auto focus on mobile screen
@@ -1145,6 +1120,7 @@ function _Chat() {
             if (payload.url) {
               accessStore.update((access) => (access.openaiUrl = payload.url!));
             }
+            accessStore.update((access) => (access.useCustomConfig = true));
           });
         }
       } catch {
@@ -1328,11 +1304,6 @@ function _Chat() {
           showModal={showPromptModal}
           setShowModal={setShowPromptModal}
         />
-
-        <AIDrawToast
-          showModal={showAIDrawSetting}
-          setShowModal={setShowAIDrawSetting}
-        />
       </div>
 
       <div
@@ -1484,15 +1455,11 @@ function _Chat() {
                       defaultShow={i >= messages.length - 6}
                     />
                     {getMessageImages(message).length == 1 && (
-                      <PhotoProvider>
-                        <PhotoView src={getMessageImages(message)[0]}>
-                          <img
-                            className={styles["chat-message-item-image"]}
-                            src={getMessageImages(message)[0]}
-                            alt=""
-                          />
-                        </PhotoView>
-                      </PhotoProvider>
+                      <img
+                        className={styles["chat-message-item-image"]}
+                        src={getMessageImages(message)[0]}
+                        alt=""
+                      />
                     )}
                     {getMessageImages(message).length > 1 && (
                       <div
@@ -1503,22 +1470,18 @@ function _Chat() {
                           } as React.CSSProperties
                         }
                       >
-                        <PhotoProvider>
-                          {getMessageImages(message).map((image, index) => {
-                            return (
-                              <PhotoView key={index} src={image}>
-                                <img
-                                  className={
-                                    styles["chat-message-item-image-multi"]
-                                  }
-                                  key={index}
-                                  src={image}
-                                  alt=""
-                                />
-                              </PhotoView>
-                            );
-                          })}
-                        </PhotoProvider>
+                        {getMessageImages(message).map((image, index) => {
+                          return (
+                            <img
+                              className={
+                                styles["chat-message-item-image-multi"]
+                              }
+                              key={index}
+                              src={image}
+                              alt=""
+                            />
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -1544,7 +1507,6 @@ function _Chat() {
           setAttachImages={setAttachImages}
           setUploading={setUploading}
           showPromptModal={() => setShowPromptModal(true)}
-          showAIDrawSetting={() => setShowAIDrawSetting(true)}
           scrollToBottom={scrollToBottom}
           hitBottom={hitBottom}
           uploading={uploading}

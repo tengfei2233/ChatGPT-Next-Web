@@ -45,5 +45,5 @@ dev
 *.key
 *.key.pub
 
-# other
-docker.sh
+
+docker-local.sh

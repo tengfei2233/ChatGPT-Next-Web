@@ -1,18 +1,15 @@
 import { LLMModel } from "../client/api";
-import { isMacOS } from "../utils";
 import { getClientConfig } from "../config/client";
 import {
   DEFAULT_INPUT_TEMPLATE,
   DEFAULT_MODELS,
   DEFAULT_SIDEBAR_WIDTH,
   StoreKey,
+  ServiceProvider,
 } from "../constant";
 import { createPersistStore } from "../utils/store";
 
 export type ModelType = (typeof DEFAULT_MODELS)[number]["name"];
-// export type DrawModelType = (typeof DEFAULLT_DRAW_MODEL)[number]["name"];
-// export type DrawQuality = (typeof DRAW_QUATITIES)[number]["name"];
-// export type DrawSize = (typeof DRAW_SIZES)[number];
 
 export enum SubmitKey {
   Enter = "Enter",
@@ -28,6 +25,8 @@ export enum Theme {
   Light = "light",
 }
 
+const config = getClientConfig();
+
 export const DEFAULT_CONFIG = {
   lastUpdate: Date.now(), // timestamp, to merge state
 
@@ -35,7 +34,7 @@ export const DEFAULT_CONFIG = {
   avatar: "1f603",
   fontSize: 14,
   theme: Theme.Auto as Theme,
-  tightBorder: !!getClientConfig()?.isApp,
+  tightBorder: !!config?.isApp,
   sendPreviewBubble: true,
   enableAutoGenerateTitle: true,
   sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
@@ -50,6 +49,7 @@ export const DEFAULT_CONFIG = {
 
   modelConfig: {
     model: "gpt-3.5-turbo" as ModelType,
+    providerName: "OpenAI" as ServiceProvider,
     temperature: 0.5,
     top_p: 1,
     max_tokens: 4000,
@@ -59,23 +59,13 @@ export const DEFAULT_CONFIG = {
     historyMessageCount: 4,
     compressMessageLengthThreshold: 1000,
     enableInjectSystemPrompts: true,
-    template: DEFAULT_INPUT_TEMPLATE,
-  },
-
-  // AI画图配置
-  drawConfig: {
-    model: "DALL-E 2",
-    size: "256x256",
-    quality: "默认",
-    n: 1,
+    template: config?.template ?? DEFAULT_INPUT_TEMPLATE,
   },
 };
 
 export type ChatConfig = typeof DEFAULT_CONFIG;
 
 export type ModelConfig = ChatConfig["modelConfig"];
-
-export type DrawConfig = ChatConfig["drawConfig"];
 
 export function limitNumber(
   x: number,
@@ -128,13 +118,14 @@ export const useAppConfig = createPersistStore(
 
       for (const model of oldModels) {
         model.available = false;
-        modelMap[model.name] = model;
+        modelMap[`${model.name}@${model?.provider?.id}`] = model;
       }
 
       for (const model of newModels) {
         model.available = true;
-        modelMap[model.name] = model;
+        modelMap[`${model.name}@${model?.provider?.id}`] = model;
       }
+
       set(() => ({
         models: Object.values(modelMap),
       }));
@@ -144,7 +135,7 @@ export const useAppConfig = createPersistStore(
   }),
   {
     name: StoreKey.Config,
-    version: 3.8,
+    version: 3.9,
     migrate(persistedState, version) {
       const state = persistedState as ChatConfig;
 
@@ -175,24 +166,14 @@ export const useAppConfig = createPersistStore(
         state.lastUpdate = Date.now();
       }
 
+      if (version < 3.9) {
+        state.modelConfig.template =
+          state.modelConfig.template !== DEFAULT_INPUT_TEMPLATE
+            ? state.modelConfig.template
+            : config?.template ?? DEFAULT_INPUT_TEMPLATE;
+      }
+
       return state as any;
     },
   },
 );
-
-export const DrawConfigValidator = {
-  model(x: string) {
-    return x;
-  },
-
-  size(x: string) {
-    return x;
-  },
-  quatity(x: string) {
-    return x;
-  },
-
-  num(x: number) {
-    return x > 10 || x < 1 ? 1 : x;
-  },
-};

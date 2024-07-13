@@ -1,7 +1,7 @@
 import { BUILTIN_MASKS } from "../masks";
 import { getLang, Lang } from "../locales";
 import { DEFAULT_TOPIC, ChatMessage } from "./chat";
-import { DrawConfig, ModelConfig, useAppConfig } from "./config";
+import { ModelConfig, useAppConfig } from "./config";
 import { StoreKey } from "../constant";
 import { nanoid } from "nanoid";
 import { createPersistStore } from "../utils/store";
@@ -15,7 +15,6 @@ export type Mask = {
   context: ChatMessage[];
   syncGlobalConfig?: boolean;
   modelConfig: ModelConfig;
-  drawConfig: DrawConfig;
   lang: Lang;
   builtin: boolean;
 };
@@ -35,8 +34,6 @@ export const createEmptyMask = () =>
     context: [],
     syncGlobalConfig: true, // use global config as default
     modelConfig: { ...useAppConfig.getState().modelConfig },
-    // ai绘图默认配置
-    drawConfig: { ...useAppConfig.getState().drawConfig },
     lang: getLang(),
     builtin: false,
     createdAt: Date.now(),
